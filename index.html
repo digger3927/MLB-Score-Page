@@ -703,7 +703,110 @@
       #modal { border-radius: 0; min-height: 100vh; }
       #player-overlay { padding: 0; align-items: flex-start; }
       #player-modal { border-radius: 0; min-height: 100vh; }
+      #standings-section { grid-template-columns: 1fr; }
     }
+
+    /* ── Standings ── */
+    #standings-wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 16px 40px;
+    }
+
+    #standings-wrap h2 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 14px;
+    }
+
+    #standings-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .league-standings {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .division-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .division-block.al { border-top: 3px solid #c0392b; }
+    .division-block.nl { border-top: 3px solid #1a6fb5; }
+
+    .division-title {
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+
+    .division-block.al .division-title { color: #c0392b; }
+    .division-block.nl .division-title { color: #1a6fb5; }
+
+    :root.dark .division-block.al .division-title { color: #e05252; }
+    :root.dark .division-block.nl .division-title { color: #58a6ff; }
+    :root.dark .division-block.al { border-top-color: #e05252; }
+    :root.dark .division-block.nl { border-top-color: #58a6ff; }
+
+    .standings-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .standings-table th {
+      text-align: right;
+      padding: 4px 10px;
+      color: var(--muted);
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+    }
+
+    .standings-table th:first-child { text-align: left; }
+
+    .standings-table td {
+      text-align: right;
+      padding: 5px 10px;
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .standings-table td:first-child { text-align: left; }
+    .standings-table tr:last-child td { border-bottom: none; }
+
+    .standings-table .team-cell {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .standings-table .team-cell img {
+      width: 18px;
+      height: 18px;
+      object-fit: contain;
+    }
+
+    .standings-table tr.clinched td:first-child::after {
+      content: ' x';
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .st-gb { color: var(--muted); }
+    .st-pct { font-weight: 600; }
   </style>
 </head>
 <body>
@@ -728,6 +831,15 @@
   <div class="summary-bar" id="summary-bar"></div>
   <div id="games-grid"><div class="loading"><div class="spinner"></div> Loading games…</div></div>
 </main>
+
+<!-- Standings -->
+<div id="standings-wrap">
+  <h2>Standings</h2>
+  <div id="standings-section">
+    <div class="league-standings" id="al-standings"></div>
+    <div class="league-standings" id="nl-standings"></div>
+  </div>
+</div>
 
 <!-- Box Score Modal -->
 <div id="modal-overlay">
@@ -1500,6 +1612,69 @@
   applyTheme(localStorage.getItem('theme') === 'dark');
 
   loadGames(toDateStr(currentDate));
+
+  // ── Standings ──
+  const DIVISION_NAMES = {
+    200: 'AL West', 201: 'AL East', 202: 'AL Central',
+    203: 'NL West', 204: 'NL East', 205: 'NL Central'
+  };
+  const AL_DIVS = [201, 202, 200];
+  const NL_DIVS = [204, 205, 203];
+
+  async function loadStandings() {
+    const season = new Date().getFullYear();
+    try {
+      const res = await fetch(`${BASE}/api/v1/standings?leagueId=103,104&season=${season}&standingsTypes=regularSeason`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      const byDiv = {};
+      for (const record of data.records) {
+        byDiv[record.division.id] = record.teamRecords;
+      }
+
+      renderLeagueStandings('al-standings', AL_DIVS, byDiv, 'al');
+      renderLeagueStandings('nl-standings', NL_DIVS, byDiv, 'nl');
+    } catch (err) {
+      document.getElementById('al-standings').innerHTML =
+        `<div style="color:var(--muted);font-size:13px">Failed to load standings.</div>`;
+    }
+  }
+
+  function renderLeagueStandings(containerId, divIds, byDiv, league) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = divIds.map(divId => {
+      const teams = byDiv[divId] || [];
+      const rows = teams.map(tr => {
+        const id = tr.team.id;
+        const w = tr.wins, l = tr.losses;
+        const pct = (w + l) > 0 ? (w / (w + l)).toFixed(3).replace(/^0/, '') : '.000';
+        const gb = tr.gamesBack === '-' ? '—' : tr.gamesBack;
+        return `<tr>
+          <td><div class="team-cell">
+            <img src="${LOGO(id)}" alt="" onerror="this.style.display='none'">
+            ${tr.team.name}
+          </div></td>
+          <td>${w}</td>
+          <td>${l}</td>
+          <td class="st-pct">${pct}</td>
+          <td class="st-gb">${gb}</td>
+        </tr>`;
+      }).join('');
+
+      return `<div class="division-block ${league}">
+        <div class="division-title">${DIVISION_NAMES[divId]}</div>
+        <table class="standings-table">
+          <thead><tr>
+            <th>Team</th><th>W</th><th>L</th><th>PCT</th><th>GB</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    }).join('');
+  }
+
+  loadStandings();
 </script>
 </body>
 </html>
