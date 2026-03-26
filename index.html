@@ -536,11 +536,173 @@
 
     .modal-error { text-align: center; padding: 40px; color: var(--muted); }
 
+    /* ── Batter link ── */
+    .batter-link {
+      color: var(--accent);
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-style: dotted;
+      text-underline-offset: 2px;
+      background: none;
+      border: none;
+      font-size: inherit;
+      font-family: inherit;
+      padding: 0;
+    }
+    .batter-link:hover { text-decoration-style: solid; }
+
+    /* ── Player view overlay ── */
+    #player-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.85);
+      z-index: 300;
+      overflow-y: auto;
+      padding: 24px 16px;
+    }
+    #player-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
+
+    #player-modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 820px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .player-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .player-back-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .player-back-btn:hover { background: var(--border); }
+
+    .player-name-title {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .player-meta {
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: auto;
+    }
+
+    .player-body { padding: 20px; }
+
+    .pitch-zone-container {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .pitch-zone-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .pitch-zone-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .pitch-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      font-size: 11px;
+      color: var(--muted);
+      max-width: 220px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .at-bat-list { flex: 1; min-width: 260px; }
+
+    .at-bat-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      background: var(--surface2);
+    }
+
+    .at-bat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+
+    .at-bat-result {
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .at-bat-result.positive { color: var(--live); }
+    .at-bat-result.negative { color: #e05252; }
+    .at-bat-result.neutral  { color: var(--text); }
+
+    .at-bat-context { font-size: 11px; color: var(--muted); }
+
+    .at-bat-pitches {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 6px;
+    }
+
+    .pitch-chip {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+      cursor: default;
+    }
+    .pitch-chip.ball   { background: rgba(31,111,235,.15); color: var(--accent); }
+    .pitch-chip.strike { background: rgba(224,82,82,.15);  color: #e05252; }
+    .pitch-chip.inplay { background: rgba(63,185,80,.15);  color: var(--live); }
+
     @media (max-width: 600px) {
       header { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
       #games-grid { grid-template-columns: 1fr; }
       #modal-overlay { padding: 0; align-items: flex-start; }
       #modal { border-radius: 0; min-height: 100vh; }
+      #player-overlay { padding: 0; align-items: flex-start; }
+      #player-modal { border-radius: 0; min-height: 100vh; }
     }
   </style>
 </head>
@@ -576,6 +738,13 @@
   </div>
 </div>
 
+<!-- Player At-Bat View -->
+<div id="player-overlay">
+  <div id="player-modal">
+    <div id="player-content"></div>
+  </div>
+</div>
+
 <script>
   const BASE = 'https://statsapi.mlb.com';
   const LOGO = id => `https://www.mlb.com/assets/images/teams/cap-logos/team-cap-on-dark/${id}.svg`;
@@ -585,6 +754,25 @@
   let refreshTimer = null;
   let hasLiveGames = false;
   let scheduleCache = {};  // gamePk -> game object for modal use
+  let currentGamePk = null;
+
+  const PITCH_COLORS = {
+    FF: '#e05252', SI: '#e07838', FC: '#e09c20', SL: '#9b5de5',
+    CU: '#2080e0', KC: '#20b8e0', CH: '#27ae60', FS: '#1abc9c',
+    KN: '#c0a020', EP: '#888888', FO: '#1abc9c', ST: '#9b5de5',
+    SV: '#9b5de5',
+  };
+  const PITCH_SHORT = {
+    FF: '4-Seam', SI: 'Sinker', FC: 'Cutter', SL: 'Slider', CU: 'Curve',
+    KC: 'KC', CH: 'Change', FS: 'Split', KN: 'Knuckle', EP: 'Eephus',
+    FO: 'Fork', ST: 'Sweeper', SV: 'Slurve',
+  };
+  function pitchColor(code) { return PITCH_COLORS[code] || '#888888'; }
+
+  const BATTER_IMG = {
+    R: 'data:image/png;base64,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',
+    L: 'data:image/png;base64,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',
+  };
 
   // ── Utilities ──────────────────────────────────────────────
 
@@ -722,6 +910,7 @@
     const header  = document.getElementById('modal-header');
     const body    = document.getElementById('modal-body');
 
+    currentGamePk = gamePk;
     overlay.classList.add('open');
     document.body.style.overflow = 'hidden';
 
@@ -740,7 +929,7 @@
       const lsGame = scheduleCache[gamePk];
 
       if (game) renderModalHeader(header, game);
-      body.innerHTML = renderBoxScore(bs, lsGame);
+      body.innerHTML = renderBoxScore(bs, lsGame, gamePk);
     } catch (err) {
       body.innerHTML = `<div class="modal-error">Failed to load box score.<br><small>${err.message}</small></div>`;
     }
@@ -843,7 +1032,7 @@
       </div>`;
   }
 
-  function renderBoxScore(bs, game) {
+  function renderBoxScore(bs, game, gamePk) {
     const state = game?.status?.abstractGameState;
     if (state === 'Preview') {
       return `<div style="padding:30px 20px;text-align:center;color:var(--muted)">
@@ -851,9 +1040,9 @@
       </div>`;
     }
 
-    const awayBatting  = renderBatting(bs.teams.away,  'Batting');
+    const awayBatting  = renderBatting(bs.teams.away,  gamePk);
     const awayPitching = renderPitching(bs.teams.away, 'Pitching');
-    const homeBatting  = renderBatting(bs.teams.home,  'Batting');
+    const homeBatting  = renderBatting(bs.teams.home,  gamePk);
     const homePitching = renderPitching(bs.teams.home, 'Pitching');
 
     const awayName = bs.teams.away.team.name;
@@ -879,7 +1068,7 @@
       ${infoHtml}`;
   }
 
-  function renderBatting(teamData, label) {
+  function renderBatting(teamData, gamePk) {
     const players      = teamData.players;
     const battingOrder = (teamData.battingOrder || []).map(String);
 
@@ -891,13 +1080,16 @@
     if (batters.length === 0) return '<p style="color:var(--muted);font-size:12px;padding:4px 0">No batting data</p>';
 
     const rows = batters.map(p => {
-      const b   = p.stats?.batting || {};
-      const pos = p.position?.abbreviation ?? '';
+      const b    = p.stats?.batting || {};
+      const pos  = p.position?.abbreviation ?? '';
       const name = p.person.boxscoreName ?? p.person.fullName;
+      const id   = p.person.id;
       const isSub = p.battingOrder && p.battingOrder % 100 !== 0;
       const indent = isSub ? 'style="padding-left:18px;color:var(--muted)"' : '';
+      const escapedName = name.replace(/'/g, "\\'");
+      const nameHtml = `<button class="batter-link" onclick="openPlayerView(${id},'${escapedName}',${gamePk})">${name}</button>`;
       return `<tr>
-        <td ${indent}>${isSub ? '↳ ' : ''}${name} <span style="color:var(--muted)">${pos}</span></td>
+        <td ${indent}>${isSub ? '↳ ' : ''}${nameHtml} <span style="color:var(--muted)">${pos}</span></td>
         <td>${b.atBats     ?? '-'}</td>
         <td>${b.runs       ?? '-'}</td>
         <td>${b.hits       ?? '-'}</td>
@@ -990,6 +1182,212 @@
       </div>`;
   }
 
+  // ── Player At-Bat View ─────────────────────────────────────
+
+  async function openPlayerView(playerId, playerName, gamePk) {
+    const overlay = document.getElementById('player-overlay');
+    const content = document.getElementById('player-content');
+
+    content.innerHTML = `
+      <div class="player-header">
+        <button class="player-back-btn" onclick="closePlayerView()">&#8592; Back to Box Score</button>
+        <div class="player-name-title">${playerName}</div>
+      </div>
+      <div class="player-body">
+        <div class="modal-loading"><div class="spinner"></div> Loading pitch data…</div>
+      </div>`;
+    overlay.classList.add('open');
+
+    try {
+      const res = await fetch(`${BASE}/api/v1/game/${gamePk}/playByPlay`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const plays = (data.allPlays || []).filter(
+        play => play.matchup?.batter?.id === playerId && play.result?.type === 'atBat'
+      );
+      content.innerHTML = buildPlayerView(playerName, plays);
+    } catch (err) {
+      content.innerHTML = `
+        <div class="player-header">
+          <button class="player-back-btn" onclick="closePlayerView()">&#8592; Back to Box Score</button>
+          <div class="player-name-title">${playerName}</div>
+        </div>
+        <div class="modal-error">Failed to load pitch data.<br><small>${err.message}</small></div>`;
+    }
+  }
+
+  function buildPlayerView(playerName, plays) {
+    const allPitches = [];
+    plays.forEach((play, abIdx) => {
+      (play.playEvents || []).forEach(ev => {
+        if (ev.type === 'pitch') allPitches.push({ ...ev, abIdx });
+      });
+    });
+
+    if (plays.length === 0) {
+      return `
+        <div class="player-header">
+          <button class="player-back-btn" onclick="closePlayerView()">&#8592; Back to Box Score</button>
+          <div class="player-name-title">${playerName}</div>
+        </div>
+        <div class="player-body" style="text-align:center;color:var(--muted);padding:40px">
+          No at-bat data available.
+        </div>`;
+    }
+
+    // Gather used pitch types for legend
+    const usedTypes = {};
+    allPitches.forEach(p => {
+      const code = p.details?.type?.code;
+      if (code) usedTypes[code] = p.details.type.description || PITCH_SHORT[code] || code;
+    });
+    const legendHtml = Object.entries(usedTypes).map(([code, desc]) => `
+      <div class="legend-item">
+        <div class="legend-dot" style="background:${pitchColor(code)}"></div>
+        <span>${PITCH_SHORT[code] || desc}</span>
+      </div>`).join('');
+
+    const atBatsHtml = plays.map((play, i) => buildAtBat(play, i + 1)).join('');
+
+    return `
+      <div class="player-header">
+        <button class="player-back-btn" onclick="closePlayerView()">&#8592; Back to Box Score</button>
+        <div class="player-name-title">${playerName}</div>
+        <span class="player-meta">${plays.length} AB · ${allPitches.length} pitches</span>
+      </div>
+      <div class="player-body">
+        <div class="pitch-legend" style="margin-bottom:16px">${legendHtml}</div>
+        <div class="at-bat-list">${atBatsHtml}</div>
+      </div>`;
+  }
+
+  function buildBatterSilhouette(pcx, sy0, pw, W, H, batSide) {
+    if (!batSide || !BATTER_IMG[batSide]) return '';
+    // Scale image height to ~72% of SVG height, preserve 82:218 aspect ratio
+    const imgH = Math.round(H * 0.72);
+    const imgW = Math.round(imgH * 82 / 218);
+    const imgY = sy0 - imgH;
+    const isRight = batSide !== 'L';
+    const imgX = isRight ? (pcx - pw / 2 - imgW) : (pcx + pw / 2);
+    return `<image x="${imgX.toFixed(1)}" y="${imgY.toFixed(1)}" width="${imgW}" height="${imgH}" href="${BATTER_IMG[batSide]}" opacity="0.9"/>`;
+  }
+
+  function buildStrikeZone(pitches, W = 220, H = 260, batSide = null) {
+    const PAD = W < 180 ? 20 : 28;
+    // Plot area in real-world feet
+    const pxMin = -1.8, pxMax = 1.8;
+    const pzMin = 0.3,  pzMax = 5.2;
+
+    // Strike zone bounds (use first pitch with zone data, else defaults)
+    let szTop = 3.5, szBot = 1.5;
+    for (const p of pitches) {
+      if (p.pitchData?.strikeZoneTop && p.pitchData?.strikeZoneBottom) {
+        szTop = p.pitchData.strikeZoneTop;
+        szBot = p.pitchData.strikeZoneBottom;
+        break;
+      }
+    }
+    const szLeft = -0.708, szRight = 0.708;
+
+    function sx(px) { return PAD + ((px - pxMin) / (pxMax - pxMin)) * (W - 2 * PAD); }
+    function sy(pz) { return PAD + ((pzMax - pz) / (pzMax - pzMin)) * (H - 2 * PAD); }
+
+    const zx = sx(szLeft), zy = sy(szTop);
+    const zw = sx(szRight) - zx, zh = sy(szBot) - zy;
+    const tw = zw / 3, th = zh / 3;
+
+    const grid = [1,2].map(i => `
+      <line x1="${(zx + tw*i).toFixed(1)}" y1="${zy.toFixed(1)}" x2="${(zx + tw*i).toFixed(1)}" y2="${(zy+zh).toFixed(1)}" stroke="var(--border)" stroke-width="0.8"/>
+      <line x1="${zx.toFixed(1)}" y1="${(zy + th*i).toFixed(1)}" x2="${(zx+zw).toFixed(1)}" y2="${(zy + th*i).toFixed(1)}" stroke="var(--border)" stroke-width="0.8"/>`).join('');
+
+    // Home plate (simple pentagon)
+    const pcx = W / 2, pw = zw * 0.75, py = sy(0.15);
+    const plate = `M ${(pcx-pw/2).toFixed(1)},${py.toFixed(1)} L ${(pcx+pw/2).toFixed(1)},${py.toFixed(1)} L ${(pcx+pw/2).toFixed(1)},${(py+5).toFixed(1)} L ${pcx.toFixed(1)},${(py+10).toFixed(1)} L ${(pcx-pw/2).toFixed(1)},${(py+5).toFixed(1)} Z`;
+
+    const dots = pitches.map((p, i) => {
+      const coords = p.pitchData?.coordinates;
+      if (coords?.pX == null || coords?.pZ == null) return '';
+      const cx = sx(coords.pX), cy = sy(coords.pZ);
+      const code = p.details?.type?.code;
+      const col  = pitchColor(code);
+      const isBall   = p.details?.isBall;
+      const isInPlay = p.details?.isInPlay;
+      const speed    = p.pitchData?.startSpeed ? `${Math.round(p.pitchData.startSpeed)} mph` : '';
+      const tip      = `${PITCH_SHORT[code] || code || ''} ${speed} — ${p.details?.description || ''}`.trim();
+      const r = W < 180 ? 8 : 9;
+      // Balls: hollow circle with colored stroke; strikes/in-play: solid fill
+      const fill      = isBall ? 'none' : col;
+      const fillOp    = isBall ? '0' : '0.88';
+      const stroke    = isBall ? col : (isInPlay ? 'white' : 'rgba(0,0,0,0.25)');
+      const sw        = isBall ? 2 : (isInPlay ? 1.5 : 0.8);
+      const textFill  = isBall ? col : 'white';
+      return `<g>
+        <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" fill="${fill}" fill-opacity="${fillOp}" stroke="${stroke}" stroke-width="${sw}">
+          <title>${tip}</title>
+        </circle>
+        <text x="${cx.toFixed(1)}" y="${(cy+3).toFixed(1)}" text-anchor="middle" font-size="7" font-weight="700" fill="${textFill}" pointer-events="none">${i+1}</text>
+      </g>`;
+    }).join('');
+
+    const sy0 = sy(0);
+    const batter = buildBatterSilhouette(pcx, sy0, pw, W, H, batSide);
+
+    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"
+        style="background:var(--surface2);border-radius:8px;border:1px solid var(--border);display:block">
+      <path d="${plate}" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+      <rect x="${zx.toFixed(1)}" y="${zy.toFixed(1)}" width="${zw.toFixed(1)}" height="${zh.toFixed(1)}"
+        fill="rgba(31,111,235,0.06)" stroke="var(--accent)" stroke-width="1.5" rx="2"/>
+      ${grid}
+      ${batter}
+      ${dots}
+    </svg>`;
+  }
+
+  function buildAtBat(play, num) {
+    const result  = play.result;
+    const about   = play.about;
+    const matchup = play.matchup;
+    const pitches = (play.playEvents || []).filter(e => e.type === 'pitch');
+
+    const inningStr = `${about.halfInning === 'top' ? 'Top' : 'Bot'} ${about.inning}`;
+    const pitcher   = matchup?.pitcher?.fullName || '';
+    const eventType = result?.eventType || '';
+
+    const positive = ['single','double','triple','home_run','walk','intent_walk','hit_by_pitch','sac_fly','sac_bunt'];
+    const negative = ['strikeout','double_play','grounded_into_double_play','triple_play'];
+    const cls = positive.includes(eventType) ? 'positive' : negative.includes(eventType) ? 'negative' : 'neutral';
+
+    const chips = pitches.map((p, i) => {
+      const code  = p.details?.type?.code || '?';
+      const speed = p.pitchData?.startSpeed ? ` ${Math.round(p.pitchData.startSpeed)}` : '';
+      const type  = p.details?.isInPlay ? 'inplay' : p.details?.isStrike ? 'strike' : 'ball';
+      const tip   = `${i+1}. ${PITCH_SHORT[code] || code}${speed ? speed+' mph' : ''} — ${p.details?.description || ''}`;
+      return `<span class="pitch-chip ${type}" title="${tip}">${i+1}. ${code}${speed}</span>`;
+    }).join('');
+
+    const batSide = matchup?.batSide?.code || null;
+    const hasPitchCoords = pitches.some(p => p.pitchData?.coordinates?.pX != null);
+    const zoneHtml = hasPitchCoords
+      ? `<div style="flex-shrink:0">${buildStrikeZone(pitches, 160, 190, batSide)}</div>`
+      : '';
+
+    return `<div class="at-bat-item">
+      <div class="at-bat-header">
+        <span class="at-bat-result ${cls}">${num}. ${result?.event || 'Unknown'}</span>
+        <span class="at-bat-context">${inningStr}</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">vs ${pitcher} · ${pitches.length} pitch${pitches.length !== 1 ? 'es' : ''}</div>
+      <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
+        ${zoneHtml}
+        <div class="at-bat-pitches" style="align-content:flex-start">${chips || '<span style="font-size:11px;color:var(--muted)">No pitch data</span>'}</div>
+      </div>
+    </div>`;
+  }
+
+  function closePlayerView() {
+    document.getElementById('player-overlay').classList.remove('open');
+  }
+
   function closeModal() {
     document.getElementById('modal-overlay').classList.remove('open');
     document.body.style.overflow = '';
@@ -1002,10 +1400,20 @@
 
   // Close on Escape
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Escape') {
+      if (document.getElementById('player-overlay').classList.contains('open')) {
+        closePlayerView(); return;
+      }
+      closeModal();
+    }
     if (document.getElementById('modal-overlay').classList.contains('open')) return;
     if (e.key === 'ArrowLeft')  navigate(-1);
     if (e.key === 'ArrowRight') navigate(1);
+  });
+
+  // Close player overlay on background click
+  document.getElementById('player-overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('player-overlay')) closePlayerView();
   });
 
   // ── Schedule loader ────────────────────────────────────────
