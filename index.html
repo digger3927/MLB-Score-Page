@@ -140,6 +140,7 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       overflow: hidden;
+      position: relative;
       cursor: pointer;
       transition: border-color 0.15s, transform 0.1s;
     }
@@ -867,6 +868,7 @@
   let hasLiveGames = false;
   let scheduleCache = {};  // gamePk -> game object for modal use
   let currentGamePk = null;
+  let scoreCache = {};     // gamePk -> {away, home} for score-change detection
 
   const PITCH_COLORS = {
     FF: '#e05252', SI: '#e07838', FC: '#e09c20', SL: '#9b5de5',
@@ -1575,6 +1577,21 @@
       const sorted = [...games].sort((a, b) =>
         (order[a.status.abstractGameState] ?? 1) - (order[b.status.abstractGameState] ?? 1));
       grid.innerHTML = sorted.map(renderGame).join('');
+
+      // ── Score-change flash animation ──
+      games.forEach(g => {
+        if (g.status.abstractGameState !== 'Live') return;
+        const pk   = g.gamePk;
+        const away = g.teams.away.score ?? 0;
+        const home = g.teams.home.score ?? 0;
+        const prev = scoreCache[pk];
+        if (prev && (prev.away !== away || prev.home !== home)) {
+          const card = document.querySelector(`.game-card[data-pk="${pk}"]`);
+          if (card) triggerScoreFlash(card);
+        }
+        scoreCache[pk] = { away, home };
+      });
+
       scheduleRefresh(hasLiveGames);
     } catch (err) {
       grid.innerHTML = `<div class="error-msg">Failed to load games.<br><small>${err.message}</small></div>`;
@@ -1587,8 +1604,54 @@
     if (live) refreshTimer = setTimeout(() => loadGames(toDateStr(currentDate)), 30000);
   }
 
+  // ── Score-change border animation ──────────────────────────
+  function triggerScoreFlash(card) {
+    card.querySelector('.score-flash-svg')?.remove();
+
+    const w = card.offsetWidth;
+    const h = card.offsetHeight;
+    const perimeter = 2 * (w + h);
+    const ns = 'http://www.w3.org/2000/svg';
+
+    const svg = document.createElementNS(ns, 'svg');
+    svg.classList.add('score-flash-svg');
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', h);
+    Object.assign(svg.style, {
+      position: 'absolute', top: '0', left: '0',
+      pointerEvents: 'none', zIndex: '10'
+    });
+
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', '2'); rect.setAttribute('y', '2');
+    rect.setAttribute('width', String(w - 4)); rect.setAttribute('height', String(h - 4));
+    rect.setAttribute('rx', '8'); rect.setAttribute('ry', '8');
+    rect.setAttribute('fill', 'none');
+    rect.setAttribute('stroke', '#3fb950');
+    rect.setAttribute('stroke-width', '3');
+    rect.setAttribute('stroke-dasharray', String(perimeter));
+    rect.setAttribute('stroke-dashoffset', String(perimeter));
+
+    svg.appendChild(rect);
+    card.appendChild(svg);
+
+    // Double rAF ensures the initial dashoffset is painted before we transition
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      rect.style.transition = 'stroke-dashoffset 0.75s ease-out';
+      rect.style.strokeDashoffset = '0';
+    }));
+
+    // Fade out after the trace completes
+    setTimeout(() => {
+      svg.style.transition = 'opacity 0.4s';
+      svg.style.opacity = '0';
+      setTimeout(() => svg.remove(), 400);
+    }, 850);
+  }
+
   function navigate(delta) {
     if (refreshTimer) clearTimeout(refreshTimer);
+    scoreCache = {};   // reset so navigation doesn't trigger stale flashes
     currentDate.setDate(currentDate.getDate() + delta);
     document.getElementById('games-grid').innerHTML =
       '<div class="loading"><div class="spinner"></div> Loading games…</div>';
