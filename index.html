@@ -808,6 +808,40 @@
 
     .st-gb { color: var(--muted); }
     .st-pct { font-weight: 600; }
+
+    /* Win Probability Bar */
+    .win-probability-wrap {
+      padding: 0 14px 10px;
+    }
+    .wp-label {
+      font-size: 10px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .wp-bar-container {
+      height: 6px;
+      background: var(--surface2);
+      border-radius: 3px;
+      overflow: hidden;
+      display: flex;
+    }
+    .wp-bar-away {
+      height: 100%;
+      background: #1a6fb5;
+      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .wp-bar-home {
+      height: 100%;
+      background: #c0392b;
+      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    :root.dark .wp-bar-away { background: #58a6ff; }
+    :root.dark .wp-bar-home { background: #e05252; }
   </style>
 </head>
 <body>
@@ -1004,6 +1038,17 @@
             <div class="score ${homeWin?'winner':isFinal?'loser':''}">${homeScore}</div>
           </div>
         </div>
+
+        ${isStarted ? `<div class="win-probability-wrap" id="wp-wrap-${game.gamePk}" style="display:none">
+          <div class="wp-label">
+            <span id="wp-away-label-${game.gamePk}">${away.team.abbreviation} 50%</span>
+            <span id="wp-home-label-${game.gamePk}">${home.team.abbreviation} 50%</span>
+          </div>
+          <div class="wp-bar-container">
+            <div class="wp-bar-away" id="wp-bar-away-${game.gamePk}" style="width: 50%"></div>
+            <div class="wp-bar-home" id="wp-bar-home-${game.gamePk}" style="width: 50%"></div>
+          </div>
+        </div>` : ''}
 
         ${isLive ? `<div style="padding:0 14px 8px">${renderCount(game)}</div>` : ''}
 
@@ -1578,6 +1623,14 @@
         (order[a.status.abstractGameState] ?? 1) - (order[b.status.abstractGameState] ?? 1));
       grid.innerHTML = sorted.map(renderGame).join('');
 
+      // ── Win Probability ──
+      games.forEach(g => {
+        const state = g.status.abstractGameState;
+        if (state === 'Live' || state === 'Final') {
+          updateWinProbability(g.gamePk, g.teams.away.team.abbreviation, g.teams.home.team.abbreviation);
+        }
+      });
+
       // ── Score-change flash animation ──
       games.forEach(g => {
         if (g.status.abstractGameState !== 'Live') return;
@@ -1664,6 +1717,35 @@
   function applyTheme(dark) {
     document.documentElement.classList.toggle('dark', dark);
     document.getElementById('theme-toggle').textContent = dark ? '☀️' : '🌙';
+  }
+
+  async function updateWinProbability(gamePk, awayAbbr, homeAbbr) {
+    try {
+      const res = await fetch(`${BASE}/api/v1/game/${gamePk}/winProbability`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data || data.length === 0) return;
+
+      const lastPlay = data[data.length - 1];
+      const awayWP = Math.round(lastPlay.awayTeamWinProbability);
+      const homeWP = Math.round(lastPlay.homeTeamWinProbability);
+
+      const wrap = document.getElementById(`wp-wrap-${gamePk}`);
+      const awayL = document.getElementById(`wp-away-label-${gamePk}`);
+      const homeL = document.getElementById(`wp-home-label-${gamePk}`);
+      const awayB = document.getElementById(`wp-bar-away-${gamePk}`);
+      const homeB = document.getElementById(`wp-bar-home-${gamePk}`);
+
+      if (!wrap || !awayL || !homeL || !awayB || !homeB) return;
+
+      wrap.style.display = 'block';
+      awayL.textContent = `${awayAbbr} ${awayWP}%`;
+      homeL.textContent = `${homeAbbr} ${homeWP}%`;
+      awayB.style.width = `${awayWP}%`;
+      homeB.style.width = `${homeWP}%`;
+    } catch (e) {
+      console.warn('WP fetch failed', e);
+    }
   }
 
   function toggleTheme() {
